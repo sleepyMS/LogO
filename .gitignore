@@ -1,0 +1,5 @@
+# 환경 변수 파일 제외
+web-app/.env
+mobileApp/.env.ios
+mobileApp/.env.android
+shared-components/.env
