@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -172,10 +172,61 @@ const Todo = () => {
     }));
   };
 
-  // ✅ 정렬: 중요 먼저
-  const sortedTasks = [...(tasks[formatDateKey(selectedDate)] || [])].sort((a, b) =>
-    a.isImportant === b.isImportant ? 0 : a.isImportant ? -1 : 1
-  );
+// 1) 먼저 "카테고리 등장 순"을 계산하는 함수
+function buildCategoryOrder(tasks: Task[]): Record<string, number> {
+  const categoryOrder: Record<string, number> = {};
+  let orderIndex = 0;
+
+  for (let i = 0; i < tasks.length; i++) {
+    const catTitle = tasks[i].category.title;
+    // 아직 기록 안 된 카테고리라면 기록
+    if (categoryOrder[catTitle] === undefined) {
+      categoryOrder[catTitle] = orderIndex;
+      orderIndex++;
+    }
+  }
+  return categoryOrder;
+}
+
+// 2) 정렬 로직
+function customSort(tasks: Task[]): Task[] {
+  if (!tasks || tasks.length === 0) return [];
+
+  // "카테고리 등장 순" 맵 생성
+  const categoryOrder = buildCategoryOrder(tasks);
+
+  // 정렬 함수
+  return [...tasks].sort((a, b) => {
+    // (1) 중요(isImportant) 비교
+    // a가 중요이고 b가 중요 아니면 => a가 먼저(-1)
+    if (a.isImportant && !b.isImportant) return -1;
+    if (!a.isImportant && b.isImportant) return 1;
+
+    // (2) 카테고리 등장 순 비교
+    const aCatOrder = categoryOrder[a.category.title];
+    const bCatOrder = categoryOrder[b.category.title];
+    if (aCatOrder !== bCatOrder) {
+      return aCatOrder - bCatOrder;
+    }
+
+    // (3) 등록 순 비교
+    // 여기서는 id(숫자형) 오름차순으로 => 작은 id가 먼저
+    // 만약 id가 Date.now().toString() 이런 식이면 parseInt로 숫자로 변환
+    // 또는 별도의 createdAt 필드를 써도 됨
+    const aID = parseInt(a.id, 10);
+    const bID = parseInt(b.id, 10);
+    return aID - bID;
+    
+  });
+}
+
+//
+// 3) 실제 sortedTasks 만들 때:
+//
+const rawTasks = tasks[formatDateKey(selectedDate)] || [];
+const sortedTasks = customSort(rawTasks);
+
+  const circleRef = useRef<TouchableOpacity | null>(null);
 
   // 📌 카테고리 변경 함수 (기존 할 일을 수정하는 경우, 여기서는 새 할 일에는 해당 안 됨)
   const changeTaskCategory = (taskId: string, newCategory: { title: string; color: string }) => {
@@ -256,46 +307,63 @@ const Todo = () => {
           <Text>카테고리 설정하기</Text>
         </View>
 
-        {/* ✅ 할 일 목록 */}
-        <FlatList
-          data={sortedTasks}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View>
-              {/* 카테고리 제목 표시 */}
-              <Text>{item.category.title}</Text>
+      <FlatList
+  data={sortedTasks}
+  keyExtractor={(item) => item.id}
+  renderItem={({ item, index }) => {
+    // 현재 항목의 카테고리
+    const currentCategory = item.category.title;
 
-              {/* 할 일 카드 */}
-              <View style={styles.taskCard}>
-                {/* 체크박스 */}
-                <TouchableOpacity onPress={() => toggleCompleted(item.id)}>
-                  <MaterialIcons
-                    name={item.isCompleted ? "check-box" : "check-box-outline-blank"}
-                    size={24}
-                    color={item.isCompleted ? "#6A0DAD" : "#B0B0B0"}
-                  />
-                </TouchableOpacity>
+    // 이전 항목의 카테고리 (index-1)
+    let prevCategory = "";
+    if (index > 0) {
+      prevCategory = sortedTasks[index - 1].category.title;
+    }
 
-                {/* 할 일 정보 */}
-                <View style={styles.taskInfo}>
-                  <Text style={[styles.taskTitle, item.isCompleted && styles.taskCompleted]}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.taskDetail}>{item.dueDate}</Text>
-                </View>
+    // 맨 첫 항목이거나, 이전 항목과 카테고리가 다르면 => 카테고리 제목 표시
+    const showCategoryTitle = (index === 0 || currentCategory !== prevCategory);
 
-                {/* 중요 버튼 */}
-                <TouchableOpacity onPress={() => toggleImportant(item.id)}>
-                  <FontAwesome
-                    name={item.isImportant ? "bookmark" : "bookmark-o"}
-                    size={20}
-                    color={item.isImportant ? "#6A0DAD" : "#B0B0B0"}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        />
+    return (
+      <View>
+        {/* 카테고리 제목 표시 여부 */}
+        {showCategoryTitle && (
+          <Text>{item.category.title}</Text>
+        )}
+
+        {/* 할 일 카드 */}
+        <View style={styles.taskCard}>
+          <View style={[styles.taskCColor, {backgroundColor: item.category.color}]}></View>
+          {/* 체크박스 */}
+          <TouchableOpacity onPress={() => toggleCompleted(item.id)}>
+            <MaterialIcons
+              name={item.isCompleted ? "check-box" : "check-box-outline-blank"}
+              size={24}
+              color={item.isCompleted ? "#6A0DAD" : "#B0B0B0"}
+            />
+          </TouchableOpacity>
+
+          {/* 할 일 정보 */}
+          <View style={styles.taskInfo}>
+            <Text style={[styles.taskTitle, item.isCompleted && styles.taskCompleted]}>
+              {item.title}
+            </Text>
+            <Text style={styles.taskDetail}>{item.dueDate}</Text>
+          </View>
+
+          {/* 중요 버튼 */}
+          <TouchableOpacity onPress={() => toggleImportant(item.id)} style={{paddingRight: 10}}>
+            <FontAwesome
+              name={item.isImportant ? "bookmark" : "bookmark-o"}
+              size={20}
+              color={item.isImportant ? "#6A0DAD" : "#B0B0B0"}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }}
+/>
+
       </View>
 
       {/* FAB */}
@@ -353,19 +421,23 @@ const Todo = () => {
                   setCategoryModalVisible(true); // 카테고리 모달 열기
                 }}
               /> */}
-              <TouchableOpacity
-                onLayout={(e) => {
-                  const { x, y, width, height } = e.nativeEvent.layout;
-                  setCircleButtonX(x);
-                  setCircleButtonY(y);
-                  setCircleButtonWidth(width);
-                  setCircleButtonHeight(height);
-                }}
-                onPress={() => {
-                  setCategoryModalVisible(true);
-                }}
-                style={[styles.categoryCircle, { backgroundColor: newTask.category.color, position: "relative" }]}
-              />
+          <TouchableOpacity
+            ref={circleRef}
+            style={[styles.categoryCircle, { backgroundColor: newTask.category.color }]}
+            onPress={() => {
+              // 버튼을 누르는 순간에 화면 절대 좌표를 계산
+              circleRef.current?.measureInWindow((x: any, y: any, width: any, height:any) => {
+                
+                setCircleButtonX(x);
+                setCircleButtonY(y);
+                setCircleButtonWidth(width);
+                setCircleButtonHeight(height);
+                setCategoryModalVisible(true); // 이때 모달 열기
+              });
+            }}
+          >
+            {/* 버튼 내용 (아이콘/텍스트) */}
+          </TouchableOpacity>
               <TextInput
                 style={styles.input}
                 placeholder="할 일 제목"
@@ -395,11 +467,10 @@ const Todo = () => {
                 ]}
               >
                 <View style={styles.dropdownContent}>
-                  <Text style={styles.modalTitle}>카테고리 선택</Text>
                   <FlatList
                     data={categories}
                     keyExtractor={(item) => item.title}
-                    style={{ maxHeight: 200 }} // 5개 이상이면 스크롤
+                    style={{ maxHeight: 120 }}
                     renderItem={({ item }) => (
                       <TouchableOpacity
                         style={styles.categoryItem}
@@ -468,7 +539,8 @@ const Todo = () => {
                 onPress={() => setShowTimePicker(true)}
               >
                 <MaterialIcons name="access-alarm" size={24} />
-                <Text style={styles.alarmButtonText}>시간 알람</Text>   {alarmTime ? <Text style={styles.timeText}> {alarmTime}</Text> : null}
+                <Text style={styles.alarmButtonText}>시간 알람</Text>
+                {alarmTime ? <Text style={styles.timeText}> {alarmTime}</Text> : null}
               </TouchableOpacity>
               {/* ✅ Time Picker 모달 */}
               <DateTimePickerModal
@@ -520,13 +592,14 @@ const styles = StyleSheet.create({
   taskCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    
+    paddingLeft: 0,
     marginBottom: 8,
     backgroundColor: "white",
     borderRadius: 8,
   },
   taskInfo: { flex: 1, marginLeft: 10 },
-  taskTitle: { fontSize: 16, fontWeight: "bold" },
+  taskTitle: { fontSize: 16, fontWeight: "bold", padding: 5 },
   taskDetail: { fontSize: 12, color: "#888" },
   taskCompleted: { textDecorationLine: "line-through", color: "#888" },
 
@@ -575,16 +648,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
-  categoryModalContent: {
-    width: "80%",
-    backgroundColor: "white",
-    padding: 20,
-    borderRadius: 15,
-    elevation: 5,
-    maxHeight: "50%",
-  },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 12,
     fontWeight: "bold",
     marginBottom: 10,
     textAlign: "center",
@@ -592,7 +657,7 @@ const styles = StyleSheet.create({
   categoryItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 15,
+    padding: 5,
     borderRadius: 8,
     marginBottom: 10,
     backgroundColor: "#f1f1f1",
@@ -604,7 +669,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   categoryText: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "bold",
   },
   inputWithCategory: {
@@ -623,8 +688,6 @@ const styles = StyleSheet.create({
   datePickerButton: {
     flexDirection: "row",
     alignItems: "center",
-    
-    
     borderRadius: 8,
     marginBottom: 12,
   },
@@ -666,10 +729,13 @@ const styles = StyleSheet.create({
     width: 200, // 목록 너비
   },
   dropdownContent: {
+    borderWidth: 1,
+    borderColor: "#ccc",
     backgroundColor: "white",
     borderRadius: 8,
     padding: 10,
-    elevation: 5,
+    elevation: 2,
+    width: 150
   },
   memoButton: {
     flexDirection: "row",
@@ -702,7 +768,19 @@ const styles = StyleSheet.create({
   },
   optionContainer: {
     gap: 5
+  },
+  taskCColor: {
+    width:10,
+    height: "100%",
+        // 왼쪽만 둥글게
+        borderTopLeftRadius: 10,
+        borderBottomLeftRadius: 10,
+        // 오른쪽 모서리는 둥글게 안함
+        borderTopRightRadius: 0,
+        borderBottomRightRadius: 0,
+        marginRight: 10,
   }
 });
 
 export default Todo;
+
