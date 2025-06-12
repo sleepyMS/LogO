@@ -3,21 +3,30 @@ import {
   Modal,
   View,
   Text,
-  Pressable,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   StyleSheet,
   TextInput,
+  Switch,
+  Pressable,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Picker } from '@react-native-picker/picker';
 
-// 루틴 추가 모달 Props
 type AddScheduleModalProps = {
   visible: boolean;
   onClose: () => void;
-  onSave: (data: { title: string; startDate: string; endDate: string }) => void;
-
-  // 모달 열릴 때 기본으로 설정될 날짜 (예: "2025-03-10")
+  onSave: (data: {
+    title: string;
+    startDate: string;
+    startTime: string;
+    endDate: string;
+    endTime: string;
+    repeatOption: string;
+    memoText: string;
+    alarmTime: string;
+    allDay: boolean;
+  }) => void;
   defaultYear: number;
   defaultMonth: number;
   defaultDay: number;
@@ -34,15 +43,24 @@ function formatDate(year: number, month: number, day: number) {
 }
 
 /**
- * "2025-03-10" → "3월 10일 (월)" 형태로 변환
+ * "YYYY-MM-DD"를 "M월 D일 (요일)" 형태로 변환
  */
 function formatDisplay(dateString: string) {
   if (!dateString) return '';
-  const [y, m, d] = dateString.split('-').map((n) => parseInt(n, 10));
+  const [y, m, d] = dateString.split('-').map(Number);
   const dateObj = new Date(y, m - 1, d);
   const dayOfWeek = dateObj.getDay(); // 0=일,1=월,2=화,...
   const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
   return `${m}월 ${d}일 (${dayNames[dayOfWeek]})`;
+}
+
+/**
+ * 시간을 "HH:mm" 형태로 포맷 (예: 09:00)
+ */
+function formatTime(hour: number, minute: number) {
+  const hh = hour < 10 ? '0' + hour : hour.toString();
+  const mm = minute < 10 ? '0' + minute : minute.toString();
+  return `${hh}:${mm}`;
 }
 
 const AddScheduleModal: React.FC<AddScheduleModalProps> = ({
@@ -53,150 +71,222 @@ const AddScheduleModal: React.FC<AddScheduleModalProps> = ({
   defaultMonth,
   defaultDay,
 }) => {
-  // 루틴 제목
+  // 기본 상태
   const [title, setTitle] = useState('');
 
-  // 시작/종료 날짜
   const [startDate, setStartDate] = useState(formatDate(defaultYear, defaultMonth, defaultDay));
   const [endDate, setEndDate] = useState(formatDate(defaultYear, defaultMonth, defaultDay));
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime] = useState('09:00');
 
-  // "날짜 Picker" 모달 표시 여부 + 어떤 날짜(시작/종료)를 수정 중인지 구분
-  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [allDay, setAllDay] = useState(false);
+
+  // 날짜·시간 피커 모달 상태
+  const [dateTimePickerVisible, setDateTimePickerVisible] = useState(false);
   const [isPickingStart, setIsPickingStart] = useState(true);
-
-  // Picker에서 선택 중인 연/월/일 임시 상태
   const [tempYear, setTempYear] = useState(defaultYear);
-  const [tempMonth, setTempMonth] = useState(1);
-  const [tempDay, setTempDay] = useState(1);
+  const [tempMonth, setTempMonth] = useState(defaultMonth);
+  const [tempDay, setTempDay] = useState(defaultDay);
+  const [tempHour, setTempHour] = useState(8);
+  const [tempMinute, setTempMinute] = useState(0);
 
-  // 모달이 열릴 때, 기본값 반영
+  // 반복 옵션 상태
+  const [repeatOption, setRepeatOption] = useState('없음');
+  const [repeatModalVisible, setRepeatModalVisible] = useState(false);
+  const repeatOptions = ['없음', '매일', '매주', '매월', '매년'];
+
+  // 메모 상태
+  const [memoModalVisible, setMemoModalVisible] = useState(false);
+  const [memoText, setMemoText] = useState('');
+
+  // 알림 상태
+  const [alarmModalVisible, setAlarmModalVisible] = useState(false);
+  const [alarmTime, setAlarmTime] = useState('08:00');
+
   useEffect(() => {
-    setTitle(''); // 모달 열릴 때마다 제목 초기화(원하면 유지해도 됨)
-    setStartDate(formatDate(defaultYear, defaultMonth, defaultDay));
-    setEndDate(formatDate(defaultYear, defaultMonth, defaultDay));
+    if (visible) {
+      setTitle('');
+      const initDate = formatDate(defaultYear, defaultMonth, defaultDay);
+      setStartDate(initDate);
+      setEndDate(initDate);
+      setStartTime('08:00');
+      setEndTime('09:00');
+      setMemoText('');
+      setRepeatOption('없음');
+      setAlarmTime('08:00');
+      setAllDay(false);
+    }
   }, [visible, defaultYear, defaultMonth, defaultDay]);
 
   /**
-   * 날짜 텍스트를 누르면 → 날짜 Picker 모달 열기
+   * 날짜/시간 클릭 시 피커 모달 오픈
    */
-  const handlePressDate = (isStart: boolean) => {
+  const handlePressDateTime = (isStart: boolean) => {
     setIsPickingStart(isStart);
-
-    // 기존 날짜를 임시 Picker 값에 반영
     const dateString = isStart ? startDate : endDate;
-    const [y, m, d] = dateString.split('-').map((n) => parseInt(n, 10));
+    const timeString = isStart ? startTime : endTime;
+    const [y, m, d] = dateString.split('-').map(Number);
+    const [h, min] = timeString.split(':').map(Number);
     setTempYear(y);
     setTempMonth(m);
     setTempDay(d);
-
-    setDatePickerVisible(true);
+    setTempHour(h);
+    setTempMinute(min);
+    setDateTimePickerVisible(true);
   };
 
-  /**
-   * 날짜 Picker "적용" 버튼
-   */
-  const applyDate = () => {
+  const applyDateTime = () => {
     const newDate = formatDate(tempYear, tempMonth, tempDay);
+    const newTime = formatTime(tempHour, tempMinute);
     if (isPickingStart) {
       setStartDate(newDate);
+      setStartTime(newTime);
     } else {
       setEndDate(newDate);
+      setEndTime(newTime);
     }
-    setDatePickerVisible(false);
+    setDateTimePickerVisible(false);
   };
 
-  /**
-   * "저장하기" 버튼
-   */
   const handleSave = () => {
     onSave({
       title,
       startDate,
+      startTime,
       endDate,
+      endTime,
+      repeatOption,
+      memoText,
+      alarmTime,
+      allDay,
     });
     onClose();
   };
 
+  // 메뉴 동작 (예시)
+  const handleMemoPress = () => setMemoModalVisible(true);
+  const handleAlarmPress = () => setAlarmModalVisible(true);
+  const handleCopyPress = () => {
+    console.log('내일 하기 / 오늘로 붙여넣기 기능');
+  };
+  const handleDeletePress = () => {
+    console.log('루틴 삭제');
+    setTitle('');
+    setMemoText('');
+  };
+  const handleCompletePress = () => {
+    console.log('루틴 완료');
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      {/* 모달 바깥 영역 클릭 시 닫힘 */}
-      <Pressable style={styles.overlay} onPress={onClose}>
-        {/* 모달 실제 내용 영역 (터치 이벤트 전파 방지) */}
-        <View style={styles.modalContainer} onStartShouldSetResponder={() => true}>
-          {/* 상단: 색상 원 + "일정 제목" TextInput */}
-          <View style={styles.headerRow}>
-            <View style={styles.colorCircle} />
-            <View style={styles.headerTitleUnderline}>
+    <>
+      {/* 메인 모달 */}
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackground} onPress={onClose} />
+          <View style={styles.modalContainer}>
+            {/* 헤더 영역 */}
+            <View style={styles.headerRow}>
+              <View style={styles.colorCircle} />
+              <View style={styles.headerTitleUnderline}>
                 <TextInput
-                style={styles.headerTitleInput}
-                placeholder="일정 제목"
-                placeholderTextColor="#aaa"
-                value={title}
-                onChangeText={setTitle}
+                  style={styles.headerTitleInput}
+                  placeholder="일정 제목"
+                  placeholderTextColor="#aaa"
+                  value={title}
+                  onChangeText={setTitle}
                 />
+              </View>
+            </View>
+
+            {/* 하루종일 토글 */}
+            <View style={styles.allDayRow}>
+              <Ionicons name="time-outline" size={20} color="#333" style={{ marginRight: 8 }} />
+              <Text style={styles.allDayLabel}>하루 종일</Text>
+              <Switch
+                style={{ marginLeft: 'auto' }}
+                value={allDay}
+                onValueChange={(val) => setAllDay(val)}
+              />
+            </View>
+
+            {/* 날짜 영역 (중앙 정렬) */}
+            <View style={styles.dateCenterRow}>
+              <TouchableOpacity onPress={() => handlePressDateTime(true)}>
+                <Text style={styles.dateText}>{formatDisplay(startDate)}</Text>
+              </TouchableOpacity>
+              <Text style={styles.arrowText}> → </Text>
+              <TouchableOpacity onPress={() => handlePressDateTime(false)}>
+                <Text style={styles.dateText}>{formatDisplay(endDate)}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 시간 영역 (하루종일이 아닐 경우에만) */}
+            {!allDay && (
+              <View style={styles.timeCenterRow}>
+                <TouchableOpacity onPress={() => handlePressDateTime(true)}>
+                  <Text style={styles.timeText}>{startTime}</Text>
+                </TouchableOpacity>
+                <Text style={styles.arrowText}> → </Text>
+                <TouchableOpacity onPress={() => handlePressDateTime(false)}>
+                  <Text style={styles.timeText}>{endTime}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* 반복 옵션 */}
+            <TouchableOpacity
+              style={styles.repeatContainer}
+              onPress={() => setRepeatModalVisible(true)}
+            >
+              <Text style={styles.repeatText}>반복: {repeatOption}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            {/* 메뉴 항목들 */}
+            <TouchableOpacity style={styles.menuItem} onPress={handleMemoPress}>
+              <Ionicons name="document-text-outline" size={20} color="#333" style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>메모</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleAlarmPress}>
+              <Ionicons name="notifications-outline" size={20} color="#333" style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>시간 알림</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleCopyPress}>
+              <Ionicons name="sunny-outline" size={20} color="#333" style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>내일 하기 / 오늘로 붙여넣기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleDeletePress}>
+              <Ionicons name="trash-outline" size={20} color="#e53935" style={styles.menuIcon} />
+              <Text style={[styles.menuLabel, { color: '#e53935' }]}>루틴 삭제하기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleCompletePress}>
+              <Ionicons name="checkmark-done-outline" size={20} color="#333" style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>루틴 완료하기</Text>
+            </TouchableOpacity>
+
+            {/* 하단 버튼 */}
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                <Text style={styles.saveButtonText}>저장하기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                <Text style={styles.cancelButtonText}>취소</Text>
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* 시작 날짜 - 종료 날짜 (터치 시 Picker 모달) */}
-          <View style={styles.dateRow}>
-            <Text style={styles.dateText} onPress={() => handlePressDate(true)}>
-              {formatDisplay(startDate)}
-            </Text>
-            <Text style={styles.dash}> - </Text>
-            <Text style={styles.dateText} onPress={() => handlePressDate(false)}>
-              {formatDisplay(endDate)}
-            </Text>
-          </View>
-
-          {/* 반복 문구 */}
-          <Text style={styles.repeatText}>매주 월 마다</Text>
-
-          {/* 구분선 */}
-          <View style={styles.divider} />
-
-          {/* 메뉴 아이템들: UI만 */}
-          <View style={styles.menuItem}>
-            <Ionicons name="document-text-outline" size={20} color="#333" style={styles.menuIcon} />
-            <Text style={styles.menuLabel}>메모</Text>
-          </View>
-          <View style={styles.menuItem}>
-            <Ionicons name="time-outline" size={20} color="#333" style={styles.menuIcon} />
-            <Text style={styles.menuLabel}>시간 알림</Text>
-          </View>
-          <View style={styles.menuItem}>
-            <Ionicons name="sunny-outline" size={20} color="#333" style={styles.menuIcon} />
-            <Text style={styles.menuLabel}>내일 하기   오늘로 붙여넣기</Text>
-          </View>
-          <View style={styles.menuItem}>
-            <Ionicons name="trash-outline" size={20} color="#e53935" style={styles.menuIcon} />
-            <Text style={[styles.menuLabel, { color: '#e53935' }]}>루틴 삭제하기</Text>
-          </View>
-          <View style={styles.menuItem}>
-            <Ionicons name="checkmark-done-outline" size={20} color="#333" style={styles.menuIcon} />
-            <Text style={styles.menuLabel}>루틴 완료하기</Text>
-          </View>
-
-          {/* 하단 버튼 */}
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Text style={styles.saveButtonText}>저장하기</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-              <Text style={styles.cancelButtonText}>취소</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      </Pressable>
+      </Modal>
 
-      {/* 날짜 Picker 모달 */}
-      <Modal visible={datePickerVisible} transparent animationType="slide">
-        <Pressable style={styles.overlay} onPress={() => setDatePickerVisible(false)}>
-          <View style={styles.datePickerContainer} onStartShouldSetResponder={() => true}>
+      {/* 날짜·시간 피커 모달 */}
+      <Modal visible={dateTimePickerVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackground} onPress={() => setDateTimePickerVisible(false)} />
+          <View style={styles.datePickerContainer}>
             <Text style={styles.datePickerTitle}>
-              {isPickingStart ? '시작 날짜' : '종료 날짜'} 선택
+              {isPickingStart ? '시작' : '종료'} 날짜·시간 선택
             </Text>
-
-            {/* 연/월/일 Picker (간단 예시) */}
             <View style={styles.pickerRow}>
               <Picker
                 style={styles.picker}
@@ -226,45 +316,161 @@ const AddScheduleModal: React.FC<AddScheduleModalProps> = ({
                 ))}
               </Picker>
             </View>
-
+            <View style={styles.timePickerRow}>
+              <Picker
+                style={styles.picker}
+                selectedValue={tempHour}
+                onValueChange={(val) => setTempHour(val)}
+              >
+                {Array.from({ length: 24 }, (_, i) => i).map((h) => (
+                  <Picker.Item key={h} label={`${h}시`} value={h} />
+                ))}
+              </Picker>
+              <Picker
+                style={styles.picker}
+                selectedValue={tempMinute}
+                onValueChange={(val) => setTempMinute(val)}
+              >
+                {Array.from({ length: 60 }, (_, i) => i).map((m) => (
+                  <Picker.Item key={m} label={`${m}분`} value={m} />
+                ))}
+              </Picker>
+            </View>
             <View style={styles.datePickerButtonRow}>
-              <TouchableOpacity style={styles.datePickerButton} onPress={applyDate}>
+              <TouchableOpacity style={styles.datePickerButton} onPress={applyDateTime}>
                 <Text style={styles.datePickerButtonText}>적용</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.datePickerButton, { backgroundColor: '#ccc' }]}
-                onPress={() => setDatePickerVisible(false)}
+                onPress={() => setDateTimePickerVisible(false)}
               >
                 <Text style={styles.datePickerButtonText}>취소</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </Pressable>
+        </View>
       </Modal>
-    </Modal>
+
+      {/* 반복 옵션 모달 */}
+      <Modal visible={repeatModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackground} onPress={() => setRepeatModalVisible(false)} />
+          <View style={styles.repeatPickerContainer}>
+            <Text style={styles.repeatPickerTitle}>반복 옵션 선택</Text>
+            <Picker
+              style={styles.picker}
+              selectedValue={repeatOption}
+              onValueChange={(val) => setRepeatOption(val)}
+            >
+              {repeatOptions.map((option, idx) => (
+                <Picker.Item key={idx} label={option} value={option} />
+              ))}
+            </Picker>
+            <View style={styles.repeatPickerButtonRow}>
+              <TouchableOpacity
+                style={styles.repeatPickerButton}
+                onPress={() => setRepeatModalVisible(false)}
+              >
+                <Text style={styles.repeatPickerButtonText}>완료</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 메모 입력 모달 */}
+      <Modal visible={memoModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackground} onPress={() => setMemoModalVisible(false)} />
+          <View style={styles.subModalContainer}>
+            <Text style={styles.subModalTitle}>메모 입력</Text>
+            <TextInput
+              style={styles.memoInput}
+              placeholder="메모를 입력하세요"
+              placeholderTextColor="#aaa"
+              value={memoText}
+              onChangeText={setMemoText}
+              multiline
+            />
+            <TouchableOpacity style={styles.subModalButton} onPress={() => setMemoModalVisible(false)}>
+              <Text style={styles.subModalButtonText}>완료</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 알림 설정 모달 */}
+      <Modal visible={alarmModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackground} onPress={() => setAlarmModalVisible(false)} />
+          <View style={styles.subModalContainer}>
+            <Text style={styles.subModalTitle}>시간 알림 설정</Text>
+            <View style={styles.timePickerRow}>
+              <Picker
+                style={styles.picker}
+                selectedValue={parseInt(alarmTime.split(':')[0], 10)}
+                onValueChange={(val) => {
+                  const minutes = parseInt(alarmTime.split(':')[1], 10);
+                  setAlarmTime(formatTime(val, minutes));
+                }}
+              >
+                {Array.from({ length: 24 }, (_, i) => i).map((h) => (
+                  <Picker.Item key={h} label={`${h}시`} value={h} />
+                ))}
+              </Picker>
+              <Picker
+                style={styles.picker}
+                selectedValue={parseInt(alarmTime.split(':')[1], 10)}
+                onValueChange={(val) => {
+                  const hour = parseInt(alarmTime.split(':')[0], 10);
+                  setAlarmTime(formatTime(hour, val));
+                }}
+              >
+                {Array.from({ length: 60 }, (_, i) => i).map((m) => (
+                  <Picker.Item key={m} label={`${m}분`} value={m} />
+                ))}
+              </Picker>
+            </View>
+            <TouchableOpacity style={styles.subModalButton} onPress={() => setAlarmModalVisible(false)}>
+              <Text style={styles.subModalButtonText}>완료</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 };
 
 export default AddScheduleModal;
 
 const styles = StyleSheet.create({
-  overlay: {
+  // 모달 전체 오버레이
+  modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    // 모달 밖 클릭 시 닫힘
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // 터치 시 모달 닫힘을 위한 배경
+  modalBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // 메인 모달 컨테이너
   modalContainer: {
     width: '85%',
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 24,
+    elevation: 5,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   colorCircle: {
     width: 24,
@@ -276,36 +482,61 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
   headerTitleUnderline: {
-    width: '70%',
-    padding: 1,
+    flex: 1,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
+    paddingBottom: 2,
   },
   headerTitleInput: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    paddingVertical: 0,
   },
-  dateRow: {
+  allDayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 12,
   },
-  dateText: {
+  allDayLabel: {
     fontSize: 15,
     color: '#333',
   },
-  dash: {
-    marginHorizontal: 6,
+  dateCenterRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  timeCenterRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dateText: {
     fontSize: 16,
+    fontWeight: 'bold',
     color: '#333',
+    textAlign: 'center',
+  },
+  timeText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  arrowText: {
+    marginHorizontal: 12,
+    fontSize: 18,
+    color: '#333',
+    fontWeight: '600',
+  },
+  repeatContainer: {
+    marginVertical: 8,
   },
   repeatText: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 8,
   },
   divider: {
     height: 1,
@@ -315,7 +546,7 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 10,
   },
   menuIcon: {
     marginRight: 12,
@@ -356,13 +587,13 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '600',
   },
-
-  // 날짜 Picker 모달
+  // 날짜·시간 피커 모달 컨테이너
   datePickerContainer: {
-    width: '75%',
+    width: '80%',
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 16,
+    elevation: 5,
   },
   datePickerTitle: {
     fontSize: 16,
@@ -374,22 +605,89 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  timePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
   picker: {
     flex: 1,
   },
   datePickerButtonRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 12,
+    marginTop: 16,
   },
   datePickerButton: {
     backgroundColor: '#5c6ef8',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 6,
     marginLeft: 8,
   },
   datePickerButtonText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  // 반복 옵션 모달
+  repeatPickerContainer: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 5,
+  },
+  repeatPickerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  repeatPickerButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  repeatPickerButton: {
+    backgroundColor: '#5c6ef8',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 6,
+  },
+  repeatPickerButtonText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  // 서브 모달 (메모, 알림)
+  subModalContainer: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 5,
+  },
+  subModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  memoInput: {
+    height: 80,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 4,
+    textAlignVertical: 'top',
+    padding: 8,
+    marginBottom: 12,
+  },
+  subModalButton: {
+    backgroundColor: '#5c6ef8',
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  subModalButtonText: {
     color: '#fff',
     fontSize: 14,
   },
